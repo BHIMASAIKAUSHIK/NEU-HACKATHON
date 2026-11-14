@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.case_loader import load_case_details
+from src.case_loader import detect_case_conflicts, load_case_details
 
 
 class CaseLoaderTests(unittest.TestCase):
@@ -20,6 +20,7 @@ class CaseLoaderTests(unittest.TestCase):
         self.assertEqual(statuses["molecular-column-links"], "pass")
         self.assertEqual(statuses["slide-duplicates"], "pass")
         self.assertEqual(statuses["diagnostic-slide"], "pass")
+        self.assertEqual(case["conflicts"], [])
 
     def test_missing_protein_and_diagnostic_slide_are_explicit(self):
         case = load_case_details("TCGA-BH-A8FY-01", include_large_layers=False)
@@ -45,6 +46,20 @@ class CaseLoaderTests(unittest.TestCase):
     def test_unknown_sample_is_rejected(self):
         with self.assertRaises(KeyError):
             load_case_details("TCGA-NOT-A-REAL-01", include_large_layers=False)
+
+    def test_conflicting_clinical_values_preserve_both_rows(self):
+        synthetic_case = {
+            "sample_id": "TCGA-AA-AAAA-01",
+            "clinical_records": [
+                {"Source row": 10, "Patient ID": "TCGA-AA-AAAA", "ER clinical status": "Positive"},
+                {"Source row": 20, "Patient ID": "TCGA-AA-AAAA", "ER clinical status": "Negative"},
+            ],
+            "quality_checks": [],
+        }
+        conflicts = detect_case_conflicts(synthetic_case)
+        er_conflict = next(item for item in conflicts if item["title"] == "Conflicting ER clinical status")
+        self.assertEqual({record["Value"] for record in er_conflict["records"]}, {"Positive", "Negative"})
+        self.assertEqual({record["Source row"] for record in er_conflict["records"]}, {10, 20})
 
 
 if __name__ == "__main__":

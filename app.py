@@ -9,7 +9,9 @@ import streamlit as st
 
 from src.case_loader import load_case_details
 from src.case_brief import build_case_brief, render_case_brief_markdown
+from src.case_questions import API_KEYS_URL, STARTER_QUESTIONS, answer_case_question, question_evidence
 from src.data_loader import DATA_LAYER_COLUMNS, filter_sample_catalog, load_sample_catalog
+from src.judge_case import parse_judge_case
 
 
 PAGE_SIZE = 24
@@ -58,7 +60,54 @@ def _display_value(value) -> str:
     return str(value)
 
 
-def render_case_detail(catalog) -> None:
+def render_case_questions(case, api_key: str) -> None:
+    sample_id = case["sample_id"]
+    st.subheader("Ask this case")
+    st.caption("Ask about the records, measurements, slides, or conflicts for this sample.")
+    with st.form("ask-case"):
+        question = st.text_input("Your question", max_chars=500,
+                                 placeholder="What stage is recorded, and is there a diagnostic slide?")
+        submitted = st.form_submit_button("Ask Claude")
+    columns = st.columns(len(STARTER_QUESTIONS))
+    for column, starter in zip(columns, STARTER_QUESTIONS):
+        if column.button(starter):
+            question, submitted = starter, True
+
+    if submitted:
+        st.session_state.pop("case_answer", None)
+        if not question.strip():
+            st.info("Enter a question about this sample.")
+        elif not api_key:
+            st.info("Enter your Claude API key in the sidebar first.")
+        else:
+            evidence = question_evidence(case)
+            try:
+                with st.spinner("Claude is reading the selected case…"):
+                    answer = answer_case_question(api_key, question.strip(), evidence)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.session_state.case_answer = (sample_id, question.strip(), answer, evidence)
+
+    result = st.session_state.get("case_answer")
+    if result is None or result[0] != sample_id:
+        return
+    _, question, answer, evidence = result
+    st.text(question)
+    if not answer:
+        st.info("The available records don’t answer this question.")
+        return
+    for claim in answer:
+        st.text(claim["text"])
+        for ref in dict.fromkeys(claim["sources"]):
+            item = evidence[ref]
+            with st.expander(f"Source {ref} · {item['source']} · {item['locator']}"):
+                st.json(item["data"], expanded=False)
+                for label, url in item["links"]:
+                    st.link_button(f"Open slide {label}", url)
+
+
+def render_case_detail(catalog, api_key: str) -> None:
     sample_id = st.session_state.selected_sample_id
     row = catalog.loc[catalog["sample_id"] == sample_id].iloc[0]
 
@@ -75,7 +124,7 @@ def render_case_detail(catalog) -> None:
         # Streamlit can retain a cached case object across a hot reload after the
         # case schema changes. Refresh once rather than exposing a stale-shape
         # KeyError to the reviewer.
-        if "quality_checks" not in case:
+        if "quality_checks" not in case or "conflicts" not in case:
             get_case_details.clear()
             case = get_case_details(sample_id)
     except (FileNotFoundError, KeyError, ValueError) as error:
@@ -114,6 +163,8 @@ def render_case_detail(catalog) -> None:
         width="stretch",
     )
 
+    render_case_questions(case, api_key)
+
     st.subheader("Evidence coverage")
     availability_columns = st.columns(3)
     for index, column in enumerate(DATA_LAYER_COLUMNS):
@@ -150,8 +201,34 @@ def render_case_detail(catalog) -> None:
         "are not labelled abnormal without a documented threshold."
     )
 
+    st.subheader("Conflicting evidence")
+    if case["conflicts"]:
+        st.error(
+            f"{len(case['conflicts'])} conflict(s) require human review. "
+            "The application preserves every source value and does not choose a winner."
+        )
+        for conflict in case["conflicts"]:
+            with st.expander(f"⚠️ {conflict['title']}", expanded=True):
+                st.write(conflict["detail"])
+                if conflict["records"]:
+                    st.dataframe(conflict["records"], hide_index=True, width="stretch")
+                st.caption(f"Source: `{conflict['source']}`")
+    else:
+        st.success("No contradictory source values or cross-file inconsistencies were detected.")
+    st.caption(
+        "This section reports data conflicts. It does not interpret raw protein values as "
+        "clinical positive or negative results."
+    )
+
     st.subheader("Clinical record")
-    if case["clinical"]:
+    if len(case["clinical_records"]) > 1:
+        st.warning(
+            f"{len(case['clinical_records'])} clinical rows match this sample. "
+            "All rows are shown so differences remain visible."
+        )
+        st.dataframe(case["clinical_records"], hide_index=True, width="stretch")
+        st.caption(f"Exact sample match · Source: `{case['sources']['clinical']}`")
+    elif case["clinical"]:
         clinical_rows = [
             {"Field": field, "Value": _display_value(value)}
             for field, value in case["clinical"].items()
@@ -297,6 +374,31 @@ def render_catalog(catalog) -> None:
         "or establish clinical validity."
     )
 
+    with st.expander("Open the judge-selected case", expanded=False):
+        st.write(
+            "Upload the `case_room_case.txt` file from the judge envelope. The file must "
+            "contain one sample ID; it does not upload a replacement database."
+        )
+        judge_file = st.file_uploader(
+            "Judge case file",
+            type=["txt"],
+            key="judge-case-file",
+        )
+        if judge_file is not None:
+            try:
+                judge_sample_id = parse_judge_case(judge_file.getvalue(), catalog)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.success(f"Validated judge sample: {judge_sample_id}")
+                st.button(
+                    "Open judge case",
+                    key="open-judge-case",
+                    on_click=select_case,
+                    args=(judge_sample_id,),
+                    width="stretch",
+                )
+
     search_column, protein_column, slide_column = st.columns([2, 1, 1])
     search = search_column.text_input(
         "Search sample or patient ID",
@@ -377,6 +479,13 @@ def render_catalog(catalog) -> None:
 
 
 def main() -> None:
+    with st.sidebar:
+        st.subheader("Claude setup")
+        st.link_button("Get a Claude API key ↗", API_KEYS_URL)
+        api_key = st.text_input("Claude API key", type="password", key="case_claude_key").strip()
+        st.caption("The key stays in this app session. Asking a question sends it and this "
+                   "sample’s evidence to Anthropic. API usage may incur charges.")
+
     try:
         catalog = get_catalog()
     except (FileNotFoundError, ValueError) as error:
@@ -387,7 +496,7 @@ def main() -> None:
         st.session_state.selected_sample_id = None
 
     if st.session_state.selected_sample_id:
-        render_case_detail(catalog)
+        render_case_detail(catalog, api_key)
     else:
         render_catalog(catalog)
 

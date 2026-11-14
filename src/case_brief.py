@@ -46,10 +46,15 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
         ("HER2 clinical status", "HER2"),
         ("PAM50 RNA subtype", "PAM50 subtype"),
     )
+    conflict_fields = {
+        field
+        for conflict in case.get("conflicts") or []
+        for field in conflict.get("fields", [])
+    }
     available_clinical = [
         f"{label}: {clinical[field]}"
         for field, label in clinical_fields
-        if clinical.get(field) is not None
+        if clinical.get(field) is not None and field not in conflict_fields
     ]
     if available_clinical:
         statements.append(
@@ -57,7 +62,11 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
                 "Recorded clinical characteristics are " + "; ".join(available_clinical) + ".",
                 sources["clinical"],
                 f"sample column/row={sample_id}; fields: "
-                + ", ".join(field for field, _ in clinical_fields if clinical.get(field) is not None),
+                + ", ".join(
+                    field
+                    for field, _ in clinical_fields
+                    if clinical.get(field) is not None and field not in conflict_fields
+                ),
             )
         )
     else:
@@ -145,6 +154,19 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
                 f"{check['title']}: {check['detail']}",
                 check["source"],
                 f"quality check={check['id']}; status={check['status']}",
+            )
+        )
+
+    for conflict in case.get("conflicts") or []:
+        row_locator = ""
+        if conflict.get("records"):
+            rows = sorted({str(record["Source row"]) for record in conflict["records"]})
+            row_locator = "; source rows=" + ", ".join(rows)
+        statements.append(
+            _entry(
+                f"Conflict preserved: {conflict['detail']}",
+                conflict["source"],
+                f"conflict={conflict['id']}{row_locator}",
             )
         )
 

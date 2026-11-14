@@ -16,6 +16,7 @@ class CaseRoomAppTests(unittest.TestCase):
 
     def test_landing_page_defaults_to_primary_tumors(self):
         self.assertEqual(self.app.title[0].value, "Multimodal Case Room")
+        self.assertEqual(len(self.app.file_uploader), 1)
         metrics = {metric.label: metric.value for metric in self.app.metric}
         self.assertEqual(metrics["Matching samples"], "1,101")
         self.assertEqual(metrics["Slide-only records"], "0")
@@ -29,6 +30,7 @@ class CaseRoomAppTests(unittest.TestCase):
         self.app.button(key="view-TCGA-BH-A8FY-01").click().run()
         self.assertEqual(self.app.title[0].value, "TCGA-BH-A8FY-01")
         self.assertTrue(any(item.value == "Case Summary" for item in self.app.subheader))
+        self.assertTrue(any(item.value == "Conflicting evidence" for item in self.app.subheader))
         self.assertEqual(len(self.app.get("download_button")), 1)
         self.assertTrue(any("No diagnostic slide" in item.value for item in self.app.info))
         self.assertEqual(len(self.app.exception), 0)

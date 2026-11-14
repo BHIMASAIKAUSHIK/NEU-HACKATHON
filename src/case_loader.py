@@ -77,26 +77,37 @@ def _read_sample_matrix(
     return frame.set_index(index_column)[sample_id]
 
 
-def _load_clinical(sample_id: str) -> dict[str, Any] | None:
+def _load_clinical_records(sample_id: str) -> list[dict[str, Any]]:
     if not CLINICAL_FILE.exists():
-        return None
+        return []
     clinical = pd.read_csv(CLINICAL_FILE, sep="\t", low_memory=False)
     if "sampleID" not in clinical.columns:
         raise ValueError("clinical.tsv is missing the sampleID column")
     rows = clinical[clinical["sampleID"].eq(sample_id)]
-    if rows.empty:
+    records = []
+    for index, row in rows.iterrows():
+        record = {
+            "Source row": int(index) + 2,
+            "Patient ID": _clean_value(row.get("_PATIENT")),
+        }
+        record.update(
+            {label: _clean_value(row.get(column)) for column, label in CLINICAL_FIELDS.items()}
+        )
+        records.append(record)
+    return records
+
+
+def _clinical_summary_record(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not records:
         return None
-    row = rows.iloc[0]
-    return {label: _clean_value(row.get(column)) for column, label in CLINICAL_FIELDS.items()}
+    return {label: records[0].get(label) for label in CLINICAL_FIELDS.values()}
 
 
-def _load_survival(sample_id: str, patient_id: str | None) -> dict[str, Any] | None:
+def _load_survival(sample_id: str) -> dict[str, Any] | None:
     if not SURVIVAL_FILE.exists():
         return None
     survival = pd.read_csv(SURVIVAL_FILE, sep="\t", low_memory=False)
     rows = survival[survival.get("sample", pd.Series(dtype=str)).eq(sample_id)]
-    if rows.empty and patient_id and "_PATIENT" in survival.columns:
-        rows = survival[survival["_PATIENT"].eq(patient_id)]
     if rows.empty:
         return None
     row = rows.iloc[0]
@@ -492,6 +503,66 @@ def run_case_quality_checks(case: dict[str, Any]) -> list[dict[str, str]]:
     return checks
 
 
+def detect_case_conflicts(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """Preserve contradictory values and source inconsistencies for display/export."""
+
+    conflicts: list[dict[str, Any]] = []
+    records = case.get("clinical_records") or []
+    fields = ("Patient ID", *CLINICAL_FIELDS.values())
+    for field in fields:
+        distinct_values = {
+            str(record[field])
+            for record in records
+            if record.get(field) is not None
+        }
+        if len(distinct_values) <= 1:
+            continue
+        evidence = [
+            {
+                "Source row": record["Source row"],
+                "Field": field,
+                "Value": record.get(field),
+            }
+            for record in records
+            if record.get(field) is not None
+        ]
+        conflicts.append(
+            {
+                "id": "clinical-" + field.lower().replace(" ", "-"),
+                "title": f"Conflicting {field}",
+                "detail": (
+                    f"Clinical rows for {case['sample_id']} contain different {field} values: "
+                    + ", ".join(sorted(distinct_values))
+                    + "."
+                ),
+                "source": "data/tcga-brca/raw/clinical.tsv",
+                "fields": [field],
+                "records": evidence,
+            }
+        )
+
+    conflict_check_ids = {
+        "patient-consistency",
+        "molecular-column-links",
+        "slide-duplicates",
+        "slide-patient-link",
+    }
+    for check in case.get("quality_checks") or []:
+        if check["status"] != "error" or check["id"] not in conflict_check_ids:
+            continue
+        conflicts.append(
+            {
+                "id": check["id"],
+                "title": check["title"],
+                "detail": check["detail"],
+                "source": check["source"],
+                "fields": [],
+                "records": [],
+            }
+        )
+    return conflicts
+
+
 def load_case_details(sample_id: str, *, include_large_layers: bool = True) -> dict[str, Any]:
     """Load a case using only exact sample barcode matches.
 
@@ -505,6 +576,7 @@ def load_case_details(sample_id: str, *, include_large_layers: bool = True) -> d
         raise KeyError(f"Sample is not present in either manifest: {sample_id}")
     row = rows.iloc[0]
 
+    clinical_records = _load_clinical_records(sample_id)
     details: dict[str, Any] = {
         "sample_id": sample_id,
         "patient_id": _clean_value(row["patient_id"]),
@@ -520,8 +592,9 @@ def load_case_details(sample_id: str, *, include_large_layers: bool = True) -> d
             "slides": bool(row["has_any_slide"]),
             "diagnostic_slide": bool(row["has_diagnostic_slide"]),
         },
-        "clinical": _load_clinical(sample_id),
-        "survival": _load_survival(sample_id, _clean_value(row["patient_id"])),
+        "clinical": _clinical_summary_record(clinical_records),
+        "clinical_records": clinical_records,
+        "survival": _load_survival(sample_id),
         "protein": _load_protein(sample_id),
         "slides": _load_slides(sample_id),
         "mutations": None,
@@ -552,4 +625,5 @@ def load_case_details(sample_id: str, *, include_large_layers: bool = True) -> d
     if details["availability"]["slides"] and not details["availability"]["diagnostic_slide"]:
         details["missing"].append("Diagnostic Slide")
     details["quality_checks"] = run_case_quality_checks(details)
+    details["conflicts"] = detect_case_conflicts(details)
     return details
