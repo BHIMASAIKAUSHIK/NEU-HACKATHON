@@ -8,7 +8,7 @@
 
 **User:** a cancer research analyst reviewing one TCGA breast cancer (TCGA-BRCA) tumour sample.
 
-**Workflow:** look up a sample by its barcode, open its case page, and see every data layer that matches that exact barcode. That covers clinical, survival, protein (RPPA), mutation, copy number, RNA and pathology slides, with links to the slides in the NCI viewer. Next, review the 10 automatic quality checks and any conflicting records, read the gaps listed under *Limitations and missing evidence*, and **export a source-cited case brief** (Markdown) for a person to review. If they want, the analyst can also ask Claude questions about the case. Every answer cites evidence IDs that point back to source files.
+**Workflow:** look up a sample by its barcode in *Browse all samples*, open its case page, and see every data layer that matches that exact barcode. That covers clinical, survival, protein (RPPA), mutation, copy number, RNA and pathology slides, with links to the slides in the NCI viewer. Next, review the 10 automatic quality checks and any conflicting records, read the gaps listed under *Data checks*, and **export a source-cited case brief** (Markdown) for a person to review. If they want, the analyst can also ask Claude questions about the case. Each answer includes links to its exact evidence locations and to the original UCSC Xena datasets where available.
 
 Records are attached only when the barcode matches exactly. Missing data is shown as missing, never filled in.
 
@@ -28,7 +28,7 @@ Records are attached only when the barcode matches exactly. Missing data is show
 |---|---|---|---|
 | 1. Clean case | **C1** `TCGA-A7-A3RF-01` | All 6 data layers, a diagnostic and a frozen slide (each opens in the NCI viewer), 10/10 quality checks passed, no conflicts. Clinical ER+/PR+/HER2− shown next to the RPPA protein values. | **Use it.** Download the brief. Every line traces to `clinical.tsv` row 159, a protein column, or a slide barcode. |
 | 2. Ambiguous evidence | **C4** `TCGA-BH-A1FJ-01` | The biomarker table shows ER **clinically Negative**, but its ER protein value (2.27) is higher than three cases recorded as clinically ER-positive (C3 1.35, C5 1.39, C6 1.57). HER2 clinical status is **Unavailable**. The app shows both values side by side and doesn't pick one. | **Needs human review.** Check the clinical ER test against the protein measurement before relying on ER status. The analyst can ask Claude *"Do any records disagree?"*, and the answer cites evidence IDs. |
-| 3. Missing evidence | **C7** `TCGA-BH-A8FY-01` | The quality-check warnings and *Limitations and missing evidence* show **no protein data** and **frozen slides only, no diagnostic slide**. | **Use with caveats.** Exclude it from any protein or diagnostic-slide analysis. Record the gap in the brief. |
+| 3. Missing evidence | **C7** `TCGA-BH-A8FY-01` | The quality-check warnings and *Data checks* show **no protein data** and **frozen slides only, no diagnostic slide**. | **Use with caveats.** Exclude it from any protein or diagnostic-slide analysis. Record the gap in the brief. |
 | 4. Refuses a bad link | **C8** `TCGA-A7-A56D-11` | A normal-tissue record with a slide but **no clinical or molecular record**. The app marks it *Slide-only* and **won't attach the same patient's tumour sample (`TCGA-A7-A56D-01`)**. | **Don't use for case-level analysis.** The app shows the gap instead of filling it. |
 | 5. Hand off | any | *Download Case Brief (.md)*. The brief keeps the sources, slide links, quality checks, conflicts and the human-review note. | The reviewer gets the same evidence the analyst saw. |
 
@@ -67,7 +67,7 @@ Open http://localhost:8501.
 
 **Optional, Claude Q&A:** paste your own Claude API key in the sidebar. The key stays in the browser session and is never written to disk or committed. Everything else works without a key.
 
-**Judge case:** on the start page, open *Open the judge-selected case* and upload `case_room_case.txt` from the envelope.
+**Judge case:** on the *Start here* tab, go to *Judge case* and upload `case_room_case.txt` from the envelope.
 
 ## One result you can verify
 
@@ -90,7 +90,7 @@ Input files are checked against the SHA-256 checksums in `data/tcga-brca/sources
 
 ## One limitation you can inspect
 
-Open **`TCGA-BH-A8FY-01`**. The app flags that this tumour has **no protein (RPPA) data and only a frozen slide, with no diagnostic FFPE slide**. You can see this in the quality-check warnings and the *Limitations and missing evidence* section. **`TCGA-A7-A56D-11`** is a normal-tissue record that has a slide but no clinical or molecular data, and the app marks it as *Slide-only*.
+Open **`TCGA-BH-A8FY-01`**. The app flags that this tumour has **no protein (RPPA) data and only a frozen slide, with no diagnostic FFPE slide**. You can see this in the quality-check warnings and the *Data checks* section. **`TCGA-A7-A56D-11`** is a normal-tissue record that has a slide but no clinical or molecular data, and the app marks it as *Slide-only*.
 
 Other limits by design: the app reports recorded values only and does not interpret slide images. Receptor statuses are shown as recorded, with no threshold applied to the RPPA values. Quality checks only cover consistency and coverage, so they can't tell you whether a measurement is correct.
 
