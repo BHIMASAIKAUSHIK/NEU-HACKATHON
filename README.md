@@ -12,6 +12,28 @@
 
 Records are attached only when the barcode matches exactly. Missing data is shown as missing, never filled in.
 
+## Demo story: problem → user → decision → outcome
+
+**Problem.** A TCGA case is spread across seven sources: a clinical table, a survival table, four molecular matrices, and slide images held in a separate archive. Sample, patient and slide IDs look almost the same (`TCGA-BH-A8FY`, `TCGA-BH-A8FY-01`, `TCGA-BH-A8FY-01A-01-TSA`). A reviewer who joins them by hand can attach the wrong slide, fail to notice a missing layer, or overlook two sources that disagree. The study then quietly inherits the mistake.
+
+**User.** A cancer research analyst preparing breast cancer cases for a study. They are reviewing one case under time pressure.
+
+**Decision.** *Can I use this case as it is, use it with caveats, or does a person need to check it first? If so, what exactly should they check?*
+
+**Outcome.** The analyst decides in minutes, not by searching files. They leave with a downloadable case brief in which every statement cites its file, row or slide, ready to hand to a reviewer.
+
+### Walkthrough (about 3 minutes, using the practice cases in `products/multimodal-case-room/practice_cases.csv`)
+
+| Step | Case | What the analyst sees | What they decide |
+|---|---|---|---|
+| 1. Clean case | **C1** `TCGA-A7-A3RF-01` | All 6 data layers, a diagnostic and a frozen slide (each opens in the NCI viewer), 10/10 quality checks passed, no conflicts. Clinical ER+/PR+/HER2− shown next to the RPPA protein values. | **Use it.** Download the brief. Every line traces to `clinical.tsv` row 159, a protein column, or a slide barcode. |
+| 2. Ambiguous evidence | **C4** `TCGA-BH-A1FJ-01` | The biomarker table shows ER **clinically Negative**, but its ER protein value (2.27) is higher than three cases recorded as clinically ER-positive (C3 1.35, C5 1.39, C6 1.57). HER2 clinical status is **Unavailable**. The app shows both values side by side and doesn't pick one. | **Needs human review.** Check the clinical ER test against the protein measurement before relying on ER status. The analyst can ask Claude *"Do any records disagree?"*, and the answer cites evidence IDs. |
+| 3. Missing evidence | **C7** `TCGA-BH-A8FY-01` | The quality-check warnings and *Limitations and missing evidence* show **no protein data** and **frozen slides only, no diagnostic slide**. | **Use with caveats.** Exclude it from any protein or diagnostic-slide analysis. Record the gap in the brief. |
+| 4. Refuses a bad link | **C8** `TCGA-A7-A56D-11` | A normal-tissue record with a slide but **no clinical or molecular record**. The app marks it *Slide-only* and **won't attach the same patient's tumour sample (`TCGA-A7-A56D-01`)**. | **Don't use for case-level analysis.** The app shows the gap instead of filling it. |
+| 5. Hand off | any | *Download Case Brief (.md)*. The brief keeps the sources, slide links, quality checks, conflicts and the human-review note. | The reviewer gets the same evidence the analyst saw. |
+
+**What the demo shows the judges:** a result they can verify (C1, traced to row and column), a limitation they can see in the product (C7, C8), evidence that disagrees and is shown rather than smoothed over (C4), and no diagnosis, treatment advice or risk score at any point.
+
 ## Team
 
 | Name | Role |
