@@ -2,7 +2,7 @@
 
 OncoSys Cancer AI Lab Hackathon · Track: Evidence Navigator
 
-Demo video: _TODO: add link_
+Demo video: https://drive.google.com/file/d/1I4zKhyIW_n-fTxTkUDNT7HQDNxQHazBY/view?usp=sharing
 
 ## What it is
 
@@ -131,8 +131,9 @@ We use only the frozen TCGA-BRCA release provided for the event. That covers UCS
 
 ## Team
 
-| Name | Role |
-|---|---|
-| _TODO_ | _TODO_ |
-| _TODO_ | _TODO_ |
-| _TODO_ | _TODO_ |
+| Name |
+|---|
+| Ibi | 
+| Hardi |
+| Purva |
+| Kaushik |
