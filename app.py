@@ -436,24 +436,22 @@ def render_slides(case) -> None:
 
 
 def render_sample_card(row) -> None:
+    available_count = sum(bool(row[column]) for column in DATA_LAYER_COLUMNS)
+    missing = [LAYER_LABELS[column] for column in DATA_LAYER_COLUMNS if not row[column]]
+    slide_text = f"{int(row['total_slides'])} slide(s)"
+    if row["diagnostic_slides"]:
+        slide_text += f", {int(row['diagnostic_slides'])} diagnostic"
+    elif row["frozen_slides"]:
+        slide_text += ", frozen only"
+
     with st.container(border=True):
-        st.markdown(f"#### {row['sample_id']}")
+        st.markdown(f"**{row['sample_id']}**")
         st.caption(f"{row['sample_type']} · {row['record_status']}")
-        st.write(f"**Patient:** {row['patient_id']}")
-
-        available = [LAYER_LABELS[column] for column in DATA_LAYER_COLUMNS if row[column]]
-        missing = [LAYER_LABELS[column] for column in DATA_LAYER_COLUMNS if not row[column]]
-        st.write(f"**Available:** {', '.join(available) if available else 'None'}")
+        st.write(f"{available_count} / {len(DATA_LAYER_COLUMNS)} data layers · {slide_text}")
         if missing:
-            st.write(f"**Missing:** {', '.join(missing)}")
-
-        slide_text = f"{int(row['total_slides'])} total"
-        if row["diagnostic_slides"]:
-            slide_text += f" · {int(row['diagnostic_slides'])} diagnostic"
-        elif row["frozen_slides"]:
-            slide_text += f" · {int(row['frozen_slides'])} frozen only"
-        st.write(f"**Slides:** {slide_text}")
-
+            st.caption(f"Missing: {', '.join(missing)}")
+        else:
+            st.caption("No missing data layers")
         st.button(
             "View case",
             key=f"view-{row['sample_id']}",
@@ -463,47 +461,53 @@ def render_sample_card(row) -> None:
         )
 
 
-def render_catalog(catalog) -> None:
-    st.title("Multimodal Case Room")
-    st.write("Find a tissue sample and see what its records, lab measurements, and slides can tell you.")
-    with st.container(border=True):
-        st.subheader("Try a sample")
-        st.write("Open a case and follow the suggested next step.")
-        examples = st.columns(3)
-        for column, (label, sample_id) in zip(examples, (
-            ("Sample with all six data types", "TCGA-A7-A3RF-01"),
-            ("Sample with missing evidence", "TCGA-BH-A8FY-01"),
-            ("Sample with slides only", "TCGA-A7-A56D-11"),
-        )):
-            if catalog["sample_id"].eq(sample_id).any():
-                column.button(label, on_click=select_case, args=(sample_id,), width="stretch")
+def render_start_tab(catalog) -> None:
+    st.markdown("#### How to use")
+    st.markdown(
+        "1. **Pick a case** below, or open the judge's case.  \n"
+        "2. **Read the evidence status** at the top of the case to see gaps and warnings.  \n"
+        "3. Open **View evidence for this claim** in the case summary to check its source."
+    )
 
-    with st.expander("Open the judge-selected case", expanded=False):
-        st.write(
-            "Upload the `case_room_case.txt` file from the judge envelope. The file must "
-            "contain one sample ID; it does not upload a replacement database."
-        )
-        judge_file = st.file_uploader(
-            "Judge case file",
-            type=["txt"],
-            key="judge-case-file",
-        )
-        if judge_file is not None:
-            try:
-                judge_sample_id = parse_judge_case(judge_file.getvalue(), catalog)
-            except ValueError as error:
-                st.error(str(error))
-            else:
-                st.success(f"Validated judge sample: {judge_sample_id}")
-                st.button(
-                    "Open judge case",
-                    key="open-judge-case",
-                    on_click=select_case,
-                    args=(judge_sample_id,),
-                    width="stretch",
-                )
+    st.markdown("#### Demo cases")
+    demos = [
+        ("TCGA-A7-A3RF-01", "Sample with all six data types", "Includes a diagnostic slide."),
+        ("TCGA-BH-A8FY-01", "Sample with missing evidence", "No protein data and no diagnostic slide."),
+        ("TCGA-A7-A56D-11", "Sample with slides only", "Slides exist, but no clinical or molecular record."),
+    ]
+    known_ids = set(catalog["sample_id"])
+    demo_columns = st.columns(3)
+    for column, (demo_id, demo_label, demo_note) in zip(demo_columns, demos):
+        if demo_id not in known_ids:
+            continue
+        with column.container(border=True):
+            st.caption(f"{demo_id} · {demo_note}")
+            st.button(demo_label, key=f"demo-{demo_id}", on_click=select_case,
+                      args=(demo_id,), width="stretch")
 
-    st.subheader("Find a sample")
+    st.markdown("#### Judge case")
+    st.caption(
+        "Upload the `case_room_case.txt` file from the judge envelope. The file must "
+        "contain one sample ID; it does not upload a replacement database."
+    )
+    judge_file = st.file_uploader("Judge case file", type=["txt"], key="judge-case-file")
+    if judge_file is not None:
+        try:
+            judge_sample_id = parse_judge_case(judge_file.getvalue(), catalog)
+        except ValueError as error:
+            st.error(str(error))
+        else:
+            st.success(f"Validated judge sample: {judge_sample_id}")
+            st.button(
+                "Open judge case",
+                key="open-judge-case",
+                on_click=select_case,
+                args=(judge_sample_id,),
+                width="stretch",
+            )
+
+
+def render_browse_tab(catalog) -> None:
     search_column, protein_column, slide_column = st.columns([2, 1, 1])
     search = search_column.text_input(
         "Search sample or patient ID",
@@ -581,6 +585,23 @@ def render_catalog(catalog) -> None:
     if next_column.button("Next →", disabled=page >= total_pages, width="stretch"):
         st.session_state.catalog_page += 1
         st.rerun()
+
+
+def render_catalog(catalog) -> None:
+    st.caption("ONCOSYS · EVIDENCE NAVIGATOR")
+    st.title("Multimodal Case Room")
+    st.write(
+        "Find a tissue sample and see its records, lab measurements, and slides with sources."
+    )
+    st.info(
+        "Research-use prototype. This tool does not diagnose disease, recommend treatment, "
+        "or establish clinical validity."
+    )
+    start_tab, browse_tab = st.tabs(["Start here", "Browse all samples"])
+    with start_tab:
+        render_start_tab(catalog)
+    with browse_tab:
+        render_browse_tab(catalog)
 
 
 def render_linked_source(catalog):
