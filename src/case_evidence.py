@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from src.case_loader import CLINICAL_FIELDS, PROTEIN_ROWS, SURVIVAL_FIELDS
+from src.case_urls import xena_dataset_page
 from src.data_loader import DATA_LAYER_COLUMNS, PROJECT_ROOT
 
 
@@ -14,13 +15,13 @@ def _publisher_urls():
     directory = Path("data/tcga-brca")
     with (PROJECT_ROOT / directory / "sources.csv").open(encoding="utf-8", newline="") as handle:
         return {
-            (directory / "raw" / row["file"]).as_posix(): row["source_url"]
+            (directory / "raw" / row["file"]).as_posix(): xena_dataset_page(row["source_url"])
             for row in csv.DictReader(handle)
         }
 
 
 def publisher_url(item):
-    """Use the same publisher URL as the dataset downloader."""
+    """Find the publisher's page for the cited dataset."""
     return _publisher_urls().get(item["source"]) if item.get("location") else None
 
 

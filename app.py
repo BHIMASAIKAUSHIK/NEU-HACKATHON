@@ -125,7 +125,7 @@ def render_original_record(item):
     url = publisher_url(item)
     if url:
         st.link_button("Open original dataset on UCSC Xena ↗", url)
-        st.caption("Use the source location above to find this entry in the download.")
+        st.caption("The dataset page also offers a download for checking this exact entry.")
     try:
         message, cells = read_source_record(item)
     except (OSError, UnicodeError):
