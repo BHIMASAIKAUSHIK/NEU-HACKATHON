@@ -94,28 +94,115 @@ files.
 
 ### Export
 
-- Generates and downloads a one-case Markdown brief (`<SAMPLE_ID>_case_brief.md`).
-- Preserves all atomic source citations, table/field locators, and external NCI IDC slide viewer links.
-- Includes data quality warnings directly in the export for auditability.
+- The user can download a Markdown brief for the currently opened sample.
+- The brief contains the summary, citations, record locators, slide links and
+  the research-use boundary.
+- It does not export the complete database.
 
----
+### Judge Case Loader
 
-## Verification & automated testing
+- The catalog includes an **Open the judge-selected case** section.
+- It accepts a `case_room_case.txt` upload containing one sample ID.
+- It validates the TCGA sample-ID format and checks the loaded manifests.
+- Invalid, multi-line and unknown sample IDs produce clear errors.
+- A validated judge sample opens through the normal linking, quality, summary
+  and export workflow.
 
-The test suite contains 16 automated unit tests passing across all critical components:
-- `tests/test_data_loader.py`: Catalog union, filtering, search, and edge-case retention.
-- `tests/test_case_loader.py`: Exact barcode matching, zero-borrowing guarantee, rejection of unknown IDs.
-- `tests/test_case_brief.py`: Rule-based statement generation, citation locator integrity, slide URL preservation.
-- `tests/test_app.py`: UI state, landing page filtering, case selection, and navigation.
+### Conflict preservation and display
 
-```text
-Ran 16 tests in ~6.8s — OK (ALL TESTS PASSING)
+- All clinical rows matching the exact sample ID are retained with their
+  original source-row numbers.
+- Contradictory patient, stage, receptor or subtype values appear in a dedicated
+  **Conflicting evidence** section.
+- Cross-file inconsistencies from molecular headers, patient links and slide
+  records also appear as conflicts.
+- Conflicting fields are omitted from the ordinary summary statement instead
+  of silently choosing the first value.
+- Every conflicting value and its source row are included in the case brief.
+
+### Testing and team materials
+
+- **23 automated tests currently pass.**
+- Tests cover the catalog, exact linking, complete case, missing-data case,
+  slide-only case, quality checks, summary citations and export.
+- A clean team-share ZIP has been created.
+- A five-slide, three-minute judge presentation has been created.
+
+## Required work remaining
+
+### 1. AI-written brief with citation protection
+
+The current summary is deterministic and source-cited. The official product
+brief asks for an AI-written brief. A safe implementation should:
+
+- Give the language model only verified statements produced by our rules.
+- Require citation IDs for every generated sentence.
+- Reject sentences with missing or unknown citations.
+- Fall back to the deterministic summary when AI is unavailable or invalid.
+- Prevent diagnosis, treatment advice and invented medical thresholds.
+
+No API key should be committed to the repository.
+
+### 2. Unseen-case rehearsal
+
+- Open the public practice envelope.
+- Load its `case_room_case.txt` through the same judge workflow.
+- Test a complete case, a missing-layer case and a slide-only case.
+- Confirm that the brief downloads with working viewer links.
+- Time the complete workflow and keep it comfortably within the live demo.
+
+### 3. Final documentation and demo polish
+
+- Add screenshots and architecture notes to the main project README.
+- Record the final installation and startup commands.
+- Confirm the application starts on a clean teammate computer.
+- Prepare a short recovery plan if the network or slide viewer is unavailable.
+
+## Optional stretch features
+
+These are useful only after the required work is reliable:
+
+- Compare two cases side by side.
+- Flag possible disagreement between recorded clinical receptor status and the
+  corresponding protein evidence, using a documented interpretation rule.
+- Export a formatted PDF in addition to Markdown.
+- Add a visible evidence-provenance graph.
+
+## Known limitations
+
+- The current summary wording comes from fixed rules rather than a language
+  model.
+- The app does not diagnose or recommend treatment.
+- Raw molecular values are displayed without invented clinical cutoffs.
+- External pathology viewing depends on the NCI viewer link and network access.
+
+## Useful demonstration cases
+
+- `TCGA-A7-A3RF-01` — complete case with all six data layers and a diagnostic
+  slide.
+- `TCGA-BH-A8FY-01` — protein missing and no diagnostic slide.
+- `TCGA-A7-A56D-11` — slide-only record; the app refuses to borrow clinical or
+  molecular evidence from another sample.
+
+## Run the application
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
----
+## Run the tests
 
-## Demo practice cases
+```bash
+source .venv/bin/activate
+python -m unittest discover -s tests -v
+```
 
-- **`TCGA-A7-A3RF-01`**: Complete case with all 6 molecular/clinical layers and diagnostic slides.
-- **`TCGA-BH-A8FY-01`**: Missing protein and diagnostic slide; demonstrates explicit missing-evidence warnings.
-- **`TCGA-A7-A56D-11`**: Slide-only record; demonstrates that the app strictly refuses to borrow clinical/molecular data from other samples.
+## Recommended implementation order
+
+1. Citation-protected AI wording with deterministic fallback.
+2. Practice-envelope and unseen-case rehearsal.
+3. Final README, demo rehearsal and deployment check.
+4. Stretch work only if the required workflow remains stable.

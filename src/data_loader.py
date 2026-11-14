@@ -102,6 +102,7 @@ def load_sample_catalog(
     )
 
     samples = samples.copy()
+    samples["manifest_source_row"] = pd.Series(samples.index + 2, dtype="Int64")
     samples["in_sample_manifest"] = True
     catalog = samples.merge(slide_summary, on="sample_id", how="outer", validate="one_to_one")
 

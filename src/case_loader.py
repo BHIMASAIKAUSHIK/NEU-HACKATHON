@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import gzip
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,13 @@ PROTEIN_ROWS = {
     "HER2": "HER2",
 }
 
+SURVIVAL_FIELDS = {
+    "OS": "Overall survival event",
+    "OS.time": "Overall survival time (days)",
+    "DSS": "Disease-specific survival event",
+    "DSS.time": "Disease-specific survival time (days)",
+}
+
 FOCUS_GENES = ("ESR1", "PGR", "ERBB2", "TP53", "BRCA1", "BRCA2")
 
 COPY_NUMBER_LABELS = {
@@ -55,8 +64,6 @@ def _clean_value(value: Any) -> Any:
         return None
     if hasattr(value, "item"):
         value = value.item()
-    if isinstance(value, float):
-        return round(value, 4)
     return value
 
 
@@ -68,10 +75,7 @@ def _read_sample_matrix(
 ) -> pd.Series | None:
     """Read one exact sample column from a wide matrix, if it exists."""
 
-    if not path.exists():
-        return None
-    columns = pd.read_csv(path, sep="\t", nrows=0).columns
-    if sample_id not in columns:
+    if _matrix_column_count(path, sample_id) != 1:
         return None
     frame = pd.read_csv(path, sep="\t", usecols=[index_column, sample_id])
     return frame.set_index(index_column)[sample_id]
@@ -111,12 +115,9 @@ def _load_survival(sample_id: str) -> dict[str, Any] | None:
     if rows.empty:
         return None
     row = rows.iloc[0]
-    return {
-        "Overall survival event": _clean_value(row.get("OS")),
-        "Overall survival time (days)": _clean_value(row.get("OS.time")),
-        "Disease-specific survival event": _clean_value(row.get("DSS")),
-        "Disease-specific survival time (days)": _clean_value(row.get("DSS.time")),
-    }
+    return {"Source row": int(row.name) + 2, **{
+        label: _clean_value(row.get(column)) for column, label in SURVIVAL_FIELDS.items()
+    }}
 
 
 def _load_protein(sample_id: str) -> dict[str, Any] | None:
@@ -166,9 +167,11 @@ def _load_slides(sample_id: str) -> list[dict[str, Any]]:
     slides = pd.read_csv(SLIDE_FILE, dtype={"sample_id": "string"})
     rows = slides[slides["sample_id"].eq(sample_id)]
     result = []
-    for _, row in rows.iterrows():
+    for index, row in rows.iterrows():
         result.append(
             {
+                "source_row": int(index) + 2,
+                "patient_id": _clean_value(row.get("patient_id")),
                 "slide_barcode": _clean_value(row.get("slide_barcode")),
                 "slide_kind": _clean_value(row.get("slide_kind")),
                 "objective": _clean_value(row.get("objective")),
@@ -199,7 +202,10 @@ def _quality_check(
 def _matrix_column_count(path: Path, sample_id: str) -> int:
     if not path.exists():
         return 0
-    return list(pd.read_csv(path, sep="\t", nrows=0).columns).count(sample_id)
+    with (gzip.open if path.suffix == ".gz" else open)(
+        path, "rt", encoding="utf-8-sig", newline=""
+    ) as handle:
+        return next(csv.reader(handle, delimiter="\t"), []).count(sample_id)
 
 
 def run_case_quality_checks(case: dict[str, Any]) -> list[dict[str, str]]:
@@ -300,10 +306,11 @@ def run_case_quality_checks(case: dict[str, Any]) -> list[dict[str, str]]:
         "rna": (RNA_FILE, "rna_hiseq.tsv.gz"),
         "protein": (PROTEIN_FILE, "protein_rppa.tsv.gz"),
     }
+    matrix_counts = {}
     matrix_problems = []
     linked_columns = 0
     for layer, (path, filename) in matrix_specs.items():
-        count = _matrix_column_count(path, sample_id)
+        count = matrix_counts[layer] = _matrix_column_count(path, sample_id)
         expected = case["availability"][layer]
         if count == 1:
             linked_columns += 1
@@ -313,6 +320,7 @@ def run_case_quality_checks(case: dict[str, Any]) -> list[dict[str, str]]:
             matrix_problems.append(f"manifest says {layer} is available, but {filename} has no column")
         elif not expected and count == 1:
             matrix_problems.append(f"manifest says {layer} is missing, but {filename} contains a column")
+    case["matrix_column_counts"] = matrix_counts
     if matrix_problems:
         checks.append(
             _quality_check(
@@ -582,6 +590,7 @@ def load_case_details(sample_id: str, *, include_large_layers: bool = True) -> d
         "patient_id": _clean_value(row["patient_id"]),
         "sample_type": _clean_value(row["sample_type"]),
         "record_status": _clean_value(row["record_status"]),
+        "manifest_source_row": _clean_value(row["manifest_source_row"]),
         "availability": {
             "clinical": bool(row["in_clinical"]),
             "survival": bool(row["has_survival"]),

@@ -7,7 +7,12 @@ clinical recommendations.
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+from src.case_evidence import publisher_url, question_evidence, resolve_sources
+from src.case_loader import CLINICAL_FIELDS
+from src.case_questions import answer_case_question
 
 
 KEY_MUTATION_GENES = ("TP53", "BRCA1", "BRCA2", "ESR1", "PGR", "ERBB2")
@@ -22,13 +27,18 @@ def _entry(text: str, source: str, locator: str, links: list[dict[str, str]] | N
     }
 
 
-def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
+def build_case_brief(case: dict[str, Any], evidence=None) -> list[dict[str, Any]]:
     """Return atomic, cited statements for a single linked case."""
 
     sample_id = case["sample_id"]
     patient_id = case.get("patient_id") or "unavailable patient"
     sample_type = case.get("sample_type") or "unknown sample type"
     sources = case["sources"]
+    evidence = question_evidence(case) if evidence is None else evidence
+
+    def cite(statement, refs):
+        statement["source_records"] = resolve_sources(evidence, refs)
+        return statement
 
     statements = [
         _entry(
@@ -37,6 +47,14 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
             f"sample_id={sample_id}; fields: patient_id, sample_type",
         )
     ]
+
+    identity = ["manifest-patient_id", "manifest-sample_type"]
+    if case["manifest_source_row"] is None:
+        identity = ["availability", "slide-count"]
+        statements[0]["text"] = (
+            f"{sample_id} has slide records and no matching sample manifest row."
+        )
+    cite(statements[0], identity)
 
     clinical = case.get("clinical") or {}
     clinical_fields = (
@@ -69,7 +87,12 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
                 ),
             )
         )
-    else:
+        row = case["clinical_records"][0]["Source row"]
+        cite(statements[-1], [
+            f"clinical-{row}-{column}" for column, label in CLINICAL_FIELDS.items()
+            if label not in conflict_fields and clinical.get(label) is not None
+        ])
+    elif not case.get("clinical_records") and not clinical:
         statements.append(
             _entry(
                 "No clinical record is linked to this exact sample ID.",
@@ -77,6 +100,8 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
                 f"exact sample lookup={sample_id}",
             )
         )
+
+        cite(statements[-1], ["clinical"])
 
     mutations = case.get("mutations")
     if mutations is None:
@@ -92,10 +117,13 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
         _entry(
             mutation_text,
             sources["mutations"],
-            f"sample column={sample_id}; mutation value=1; focus list is fixed in the application",
+            f"sample column={sample_id}; mutation value is nonzero; focus list is fixed in the application",
         )
     )
 
+    cite(statements[-1], ["mutations-header" if mutations is None else "mutation-count"])
+
+    review_notes_start = len(statements)
     availability = case.get("availability") or {}
     layer_names = {
         "clinical": "clinical",
@@ -117,8 +145,13 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
         )
     )
 
+    cite(statements[-1], [
+        ref for ref in evidence
+        if ref.startswith(("manifest-in_", "manifest-has_")) or ref == "availability"
+    ])
+
     slides = case.get("slides") or []
-    diagnostic_count = sum("diagnostic" in slide["slide_kind"].lower() for slide in slides)
+    diagnostic_count = sum("diagnostic" in (slide["slide_kind"] or "").lower() for slide in slides)
     if slides:
         slide_text = (
             f"{len(slides)} pathology slide{'s are' if len(slides) != 1 else ' is'} linked by exact "
@@ -137,6 +170,8 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
         slide_locator = f"exact sample lookup={sample_id}"
     statements.append(_entry(slide_text, sources["slides"], slide_locator, slide_links))
 
+    cite(statements[-1], ["slide-count"])
+
     checks = case.get("quality_checks") or []
     warnings = [check for check in checks if check["status"] == "warning"]
     errors = [check for check in checks if check["status"] == "error"]
@@ -148,6 +183,7 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
             "derived from the cited integrity checks displayed below this brief",
         )
     )
+    cite(statements[-1], [f"check-{check['id']}" for check in checks])
     for check in warnings + errors:
         statements.append(
             _entry(
@@ -157,19 +193,62 @@ def build_case_brief(case: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
+        cite(statements[-1], [f"check-{check['id']}"])
+
     for conflict in case.get("conflicts") or []:
         row_locator = ""
         if conflict.get("records"):
             rows = sorted({str(record["Source row"]) for record in conflict["records"]})
             row_locator = "; source rows=" + ", ".join(rows)
+        values_by_row = [
+            f"Row {record['Source row']} records {record['Field']} as {record['Value']}."
+            for record in conflict.get("records", [])
+        ]
+        detail = " ".join([conflict["detail"], *values_by_row])
         statements.append(
             _entry(
-                f"Conflict preserved: {conflict['detail']}",
+                f"Conflict preserved: {detail}",
                 conflict["source"],
                 f"conflict={conflict['id']}{row_locator}",
             )
         )
 
+        cite(statements[-1], [f"conflict-{conflict['id']}"])
+
+    for statement in statements[review_notes_start:]:
+        statement["review_note"] = True
+    return statements
+
+
+def generate_case_brief(api_key, evidence):
+    """Draft cited sentences and resolve their sources against this case."""
+    claims = answer_case_question(
+        api_key,
+        "Write a concise research brief for the open sample.",
+        evidence,
+        additional_instructions=(
+            "\nWrite three to five sentences when the evidence supports them. Cover available "
+            "clinical and molecular findings and the slide inventory. Include any relevant "
+            "limitations or disagreements, and report both values for disputed findings. "
+            "Cite individual slide records when you describe those slides."
+        ),
+    )
+    if not claims:
+        raise ValueError("Claude did not return a cited brief.")
+    statements = []
+    for claim in claims:
+        refs = list(dict.fromkeys(claim["sources"]))
+        items = resolve_sources(evidence, refs)
+        links = dict(link for item in items for link in item["links"])
+        statement = _entry(
+            claim["text"].strip(),
+            " / ".join(dict.fromkeys(item["source"] for item in items)),
+            "Source coordinates and values below",
+            [{"label": label, "url": url} for label, url in links.items()],
+        )
+        statement["evidence_refs"] = refs
+        statement["source_records"] = items
+        statements.append(statement)
     return statements
 
 
@@ -185,16 +264,32 @@ def render_case_brief_markdown(case: dict[str, Any], statements: list[dict[str, 
         "## Source-cited summary",
         "",
     ]
+    showing_claude = any(statement.get("evidence_refs") for statement in statements)
+    if showing_claude:
+        lines.extend(["Claude draft. Check the cited records below each statement.", ""])
+    notes_started = False
     for statement in statements:
+        if showing_claude and statement.get("review_note") and not notes_started:
+            lines.extend(["", "## Evidence coverage and data checks", ""])
+            notes_started = True
         lines.extend(
             [
-                f"- {statement['text']}",
+                "- " + re.sub(r"([\\`*_{}\[\]<>!|])", r"\\\1", " ".join(statement["text"].splitlines())),
                 f"  - Source: `{statement['source']}`",
                 f"  - Locator: {statement['locator']}",
             ]
         )
-        for link in statement["links"]:
-            lines.append(f"  - [{link['label']}]({link['url']})")
+        links = {link["label"]: link["url"] for link in statement["links"]}
+        for item in statement.get("source_records", []):
+            values = ", ".join(f"{field} = {value if value is not None else 'blank or missing'}"
+                               for field, value in item["data"].items())
+            lines.append(f"  - `{item['source']}` · {item['locator']} · {values}")
+            if url := publisher_url(item):
+                filename = item["source"].rsplit("/", 1)[-1]
+                links[f"Original UCSC Xena dataset ({filename})"] = url
+            links.update(item["links"])
+        for label, url in links.items():
+            lines.append(f"  - [{label}]({url})")
 
     lines.extend(
         [
