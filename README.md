@@ -2,7 +2,7 @@
 
 **OncoSys Cancer AI Lab Hackathon · Track: Evidence Navigator · Product: [Multimodal Case Room](products/multimodal-case-room.md)**
 
-> 🎥 **Demo video:** _TODO: add link_
+> 🎥 **Demo video:**https://drive.google.com/file/d/1I4zKhyIW_n-fTxTkUDNT7HQDNxQHazBY/view?usp=sharing
 
 ## Who it's for and what they finish
 
