@@ -1,5 +1,6 @@
 .ipynb_checkpoints/
 __pycache__/
+.venv/
 .DS_Store
 # Judge-only material never goes in this repo
 judges/
