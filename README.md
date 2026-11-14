@@ -1,26 +1,109 @@
-# OncoSys Cancer AI Lab: Healthcare AI Hackathon
+# Multimodal Case Room
 
-## 🔬 Featured Implementation: Multimodal Case Room (Track 2: Evidence Navigator)
+**OncoSys Cancer AI Lab Hackathon · Track: Evidence Navigator · Product: [Multimodal Case Room](products/multimodal-case-room.md)**
 
-> **Current Status:** MVP Ready · 16/16 Unit Tests Passing · Detailed status documented in [`PROJECT_STATUS.md`](PROJECT_STATUS.md) and [`TEAM_HANDOFF.md`](TEAM_HANDOFF.md).
+> 🎥 **Demo video:** _TODO: add link_
 
-The **OncoSys Multimodal Case Room** is a Streamlit application designed for oncology research teams to investigate patient cases across multiple data layers (Clinical, Survival, Mutation, Copy Number, RNA Expression, RPPA Protein, and Whole-Slide Pathology Images).
+## Who it's for and what they finish
 
-### Quickstart
+**User:** a cancer research analyst reviewing one TCGA breast cancer (TCGA-BRCA) tumour sample.
+
+**Workflow:** look up a sample by its barcode, open its case page, and see every data layer that matches that exact barcode. That covers clinical, survival, protein (RPPA), mutation, copy number, RNA and pathology slides, with links to the slides in the NCI viewer. Next, review the 10 automatic quality checks and any conflicting records, read the gaps listed under *Limitations and missing evidence*, and **export a source-cited case brief** (Markdown) for a person to review. If they want, the analyst can also ask Claude questions about the case. Every answer cites evidence IDs that point back to source files.
+
+Records are attached only when the barcode matches exactly. Missing data is shown as missing, never filled in.
+
+## Team
+
+| Name | Role |
+|---|---|
+| _TODO_ | _TODO_ |
+| _TODO_ | _TODO_ |
+| _TODO_ | _TODO_ |
+
+## Setup and run
+
+Needs Python 3.10+ and about 75 MB of disk for the data. On macOS/Linux use `python3` if `python` points to Python 2.
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/BHIMASAIKAUSHIK/NEU-HACKATHON.git
+cd NEU-HACKATHON
 pip install -r requirements.txt
 
-# 2. (Optional) Run verification test suite
-python3 -m unittest discover -s tests -v
+# Required: download the frozen TCGA-BRCA release and verify it against data/tcga-brca/sources.csv
+python data/tcga-brca/fetch.py
 
-# 3. Launch the Case Room application
+# Optional: run the test suite
+python -m unittest discover -s tests -v
+
+# Start the app
 streamlit run app.py
 ```
-Open `http://localhost:8501` to start reviewing cases.
+
+Open http://localhost:8501.
+
+> ⚠️ Run `fetch.py` before you start the app. Without it the sample list still loads, but the case pages show clinical and molecular layers as unavailable.
+
+**Optional, Claude Q&A:** paste your own Claude API key in the sidebar. The key stays in the browser session and is never written to disk or committed. Everything else works without a key.
+
+**Judge case:** on the start page, open *Open the judge-selected case* and upload `case_room_case.txt` from the envelope.
+
+## One result you can verify
+
+Open **`TCGA-A7-A3RF-01`**. The case page and the exported brief show:
+
+| Shown in app | Source file | How to reproduce |
+|---|---|---|
+| ER Positive, PR Positive, HER2 Negative, Stage IIA | `data/tcga-brca/raw/clinical.tsv`, row 159 (`sampleID == TCGA-A7-A3RF-01`) | open the file at that row |
+| RPPA ER-alpha 3.67, PR 0.2949, HER2 −1.2124 | `data/tcga-brca/raw/protein_rppa.tsv.gz`, column `TCGA-A7-A3RF-01`, rows `ERALPHA`, `PR`, `HER2` | see the snippet below |
+| 2 slides: `TCGA-A7-A3RF-01Z-00-DX1` (diagnostic FFPE) and `-01A-01-TS1` (frozen), each with an NCI viewer link | `data/tcga-brca/slide_manifest.csv`, where `sample_id == TCGA-A7-A3RF-01` | filter the CSV |
+| 10/10 quality checks pass | logic in `src/case_loader.py` (`run_case_quality_checks`) | `python -m unittest tests.test_case_loader` |
+
+```python
+import pandas as pd
+df = pd.read_csv("data/tcga-brca/raw/protein_rppa.tsv.gz", sep="\t", index_col="Sample_description")
+print(df.loc[["ERALPHA", "PR", "HER2"], "TCGA-A7-A3RF-01"])
+```
+
+Input files are checked against the SHA-256 checksums in `data/tcga-brca/sources.csv` (frozen release, retrieved 2026-11-10).
+
+## One limitation you can inspect
+
+Open **`TCGA-BH-A8FY-01`**. The app flags that this tumour has **no protein (RPPA) data and only a frozen slide, with no diagnostic FFPE slide**. You can see this in the quality-check warnings and the *Limitations and missing evidence* section. **`TCGA-A7-A56D-11`** is a normal-tissue record that has a slide but no clinical or molecular data, and the app marks it as *Slide-only*.
+
+Other limits by design: the app reports recorded values only and does not interpret slide images. Receptor statuses are shown as recorded, with no threshold applied to the RPPA values. Quality checks only cover consistency and coverage, so they can't tell you whether a measurement is correct.
+
+## Human review and scope
+
+- Every case page carries this banner: *Research-use prototype … not a diagnosis, treatment recommendation, risk score, or claim of clinical validity.*
+- Conflicting records are kept side by side and labelled **"require human review"**. The exported brief closes by telling the reader to check the original evidence with a qualified human reviewer.
+- Claude's instructions forbid diagnosis, treatment advice, outcome prediction and slide interpretation. If the evidence doesn't answer a question, it must say so.
+
+## Data
+
+Only the frozen **TCGA-BRCA** release provided for the event (UCSC Xena TCGA hub plus NCI Imaging Data Commons slide links). Sources, checksums and licences are in [`data/tcga-brca/sources.csv`](data/tcga-brca/sources.csv) and [`DATA_LICENSES.md`](DATA_LICENSES.md). We added no other data.
+
+## Third-party code and licences
+
+| Package / service | Used for | Licence |
+|---|---|---|
+| [Streamlit](https://github.com/streamlit/streamlit) | Web app | Apache-2.0 |
+| [pandas](https://github.com/pandas-dev/pandas) | Data loading and joins | BSD-3-Clause |
+| [NumPy](https://github.com/numpy/numpy) | pandas dependency | BSD-3-Clause |
+| [matplotlib](https://github.com/matplotlib/matplotlib) | Starter notebook plots | Matplotlib License (PSF-based) |
+| [Jupyter](https://github.com/jupyter/notebook) | Starter notebook | BSD-3-Clause |
+| [jsonschema](https://github.com/python-jsonschema/jsonschema) | Shared findings format validator | MIT |
+| [Pillow](https://github.com/python-pillow/Pillow) | Image packs (starter) | MIT-CMU (HPND) |
+| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | Image packs (starter) | BSD-3-Clause |
+| [idc-index](https://github.com/ImagingDataCommons/idc-index) | IDC slide manifests | MIT |
+| [cryptography](https://github.com/pyca/cryptography) | Opening the sealed envelopes | Apache-2.0 OR BSD-3-Clause |
+| [Claude API](https://docs.claude.com) (Anthropic) | Optional case Q&A, called over HTTPS with the user's own key | Anthropic commercial terms |
+| Hackathon starter repo (OncoSys challenge) | Data packs, fetch scripts, starter, format | See [`RULES.md`](RULES.md) / [`DATA_LICENSES.md`](DATA_LICENSES.md) |
+
+More detail: [`PROJECT_STATUS.md`](PROJECT_STATUS.md) · [`TEAM_HANDOFF.md`](TEAM_HANDOFF.md)
 
 ---
+
+# Hackathon challenge brief (from the organizers)
 
 ![A real breast cancer slide from TCGA (left) beside an AI model's map of where immune cells are likely (right)](assets/hero_tissue_ai.jpg)
 
