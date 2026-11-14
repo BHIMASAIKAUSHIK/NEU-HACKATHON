@@ -36,11 +36,12 @@ Records are attached only when the barcode matches exactly. Missing data is show
 
 ## Team
 
-| Name | Role |
-|---|---|
-| _TODO_ | _TODO_ |
-| _TODO_ | _TODO_ |
-| _TODO_ | _TODO_ |
+| Name |
+|---|
+| IBi | 
+| Hardi| 
+| Purva |
+| Kaushik |
 
 ## Setup and run
 
